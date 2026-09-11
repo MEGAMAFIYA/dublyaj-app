@@ -1,0 +1,51 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kodni olish
+        uses: actions/checkout@v4
+
+      - name: JDK 17 o'rnatish
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK sozlash
+        uses: android-actions/setup-android@v3
+
+      - name: Gradle o'rnatish
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Gradle wrapper yaratish
+        run: gradle wrapper --gradle-version 8.7
+
+      - name: Debug APK yasash
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: APK'ni build natijasi sifatida saqlash
+        uses: actions/upload-artifact@v4
+        with:
+          name: dublyaj-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Yuklab olinadigan Release yaratish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Eng so'nggi build"
+          body: "Bu build avtomatik yaratilgan. Pastdagi .apk faylni telefoningizga yuklab, o'rnating."
+          files: app/build/outputs/apk/debug/app-debug.apk
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
