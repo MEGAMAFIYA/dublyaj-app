@@ -46,11 +46,24 @@ fun KinoScreen(onVideoSelected: (File) -> Unit) {
                     // Eski nusxalarni tozalab, joy va chalkashlikning oldini olamiz.
                     destDir.listFiles()?.forEach { it.delete() }
                     val dest = File(destDir, "video_${System.currentTimeMillis()}.mp4")
+                    var copiedBytes = 0L
                     context.contentResolver.openInputStream(uri)?.use { input ->
                         dest.outputStream().use { output ->
-                            input.copyTo(output, bufferSize = 1 * 1024 * 1024)
+                            copiedBytes = input.copyTo(output, bufferSize = 1 * 1024 * 1024)
                         }
-                    } ?: throw Exception("Videoni o'qib bo'lmadi")
+                    } ?: throw Exception("Videoni o'qib bo'lmadi (InputStream null)")
+
+                    // Ba'zi qurilmalarda (masalan bulutga bog'langan galereya elementlari)
+                    // nusxalash "xatosiz" tugaydi, lekin aslida to'liq bayt kelmaydi —
+                    // bu holda MediaExtractor keyinroq tushunarsiz "Failed to instantiate
+                    // extractor" xatosi bilan yiqiladi. Shu yerda darhol aniq tekshiramiz.
+                    if (copiedBytes < 100_000L) {
+                        throw Exception(
+                            "Video to'liq nusxalanmadi (atigi $copiedBytes bayt keldi). " +
+                                "Boshqa video bilan sinab ko'ring yoki avval videoni telefon " +
+                                "xotirasiga (Fayllar ilovasi orqali) saqlab, shu yerdan tanlang."
+                        )
+                    }
                     dest
                 }
                 copying = false

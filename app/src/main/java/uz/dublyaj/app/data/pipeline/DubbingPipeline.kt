@@ -44,6 +44,12 @@ class DubbingPipeline(
     }
 
     suspend fun run(videoFile: File, onStep: (PipelineStep) -> Unit): File = withContext(Dispatchers.IO) {
+        if (!videoFile.exists() || videoFile.length() < 100_000L) {
+            throw Exception(
+                "Video fayl topilmadi yoki juda kichik (${if (videoFile.exists()) videoFile.length() else 0} bayt). " +
+                    "Iltimos, Kino bo'limiga qaytib, videoni qaytadan tanlang."
+            )
+        }
         val videoPath = videoFile.absolutePath
         onStep(PipelineStep.VIDEO_LOADED)
 
