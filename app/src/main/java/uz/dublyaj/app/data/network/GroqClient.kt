@@ -33,7 +33,7 @@ class GroqClient(private val apiKey: String) {
             .setType(MultipartBody.FORM)
             .addFormDataPart(
                 "file", audioFile.name,
-                audioFile.asRequestBody("audio/wav".toMediaTypeOrNull())
+                audioFile.asRequestBody("audio/mp4".toMediaTypeOrNull())
             )
             .addFormDataPart("model", "whisper-large-v3")
             .addFormDataPart("response_format", "verbose_json")
@@ -48,6 +48,12 @@ class GroqClient(private val apiKey: String) {
         client.newCall(request).execute().use { response ->
             val bodyStr = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
+                if (response.code == 413) {
+                    throw Exception(
+                        "Video juda uzun (audio fayli Groq yuklash chegarasidan katta). " +
+                            "Hozircha qisqaroq (~20 daqiqagacha) video bilan urinib ko'ring."
+                    )
+                }
                 throw Exception("Groq transkripsiya xatosi: HTTP ${response.code} — $bodyStr")
             }
             val json = JSONObject(bodyStr)

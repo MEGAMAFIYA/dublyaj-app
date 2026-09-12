@@ -53,8 +53,8 @@ class DubbingPipeline(
         val videoPath = videoFile.absolutePath
         onStep(PipelineStep.VIDEO_LOADED)
 
-        val extractedAudio = File(workDir, "extracted_audio.wav")
-        AudioTools.decodeAudioTrackToWav(videoPath, extractedAudio)
+        val extractedAudio = File(workDir, "extracted_audio.m4a")
+        AudioTools.prepareAudioForTranscription(videoPath, extractedAudio)
         onStep(PipelineStep.AUDIO_EXTRACTED)
 
         val transcript = groq.transcribe(extractedAudio)

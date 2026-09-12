@@ -8,7 +8,6 @@ import android.media.MediaMetadataRetriever
 import android.media.MediaMuxer
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -38,24 +37,19 @@ object AudioTools {
 
     /**
      * Videodagi audio trekni (kodekidan qat'iy nazar — AAC, MP3, Opus va h.k.)
-     * DEKODLAB, WAV faylga yozadi.
+     * dekodlab, MONO + 16kHz'ga tushirib, siqilgan AAC (.m4a) faylga yozadi.
+     * Bu fayl Groq/Whisper'ga yuklash uchun ishlatiladi.
      *
-     * Nega remux emas, dekodlash: birinchi versiyada audio trekni
-     * MediaMuxer orqali to'g'ridan-to'g'ri MP4 konteyneriga ko'chirishga
-     * harakat qilingandi — lekin ba'zi videolarning audio kodeki (masalan
-     * MP3 yoki Opus) MediaMuxer'ning MP4-chiqish rejimida to'g'ridan-to'g'ri
-     * qo'llab-quvvatlanmasligi mumkin, va bu xatoni umumiy "audio trek
-     * topilmadi" degan xabar bilan yashirib qo'yardi. Dekodlab-WAV-yozish
-     * kodekdan qat'iy nazar ishlaydi, chunki MediaCodec dekoderi deyarli
-     * barcha keng tarqalgan audio kodeklarni qo'llab-quvvatlaydi, WAV esa
-     * hech qanday kodlashni talab qilmaydi (xom PCM + sarlavha, xolos).
-     * Groq/Whisper WAV formatini to'g'ridan-to'g'ri qabul qiladi.
+     * Nega mono+16kHz+siqilgan: Whisper ichki jarayonda baribir 16kHz'ga
+     * tushiradi, shuning uchun undan yuqori sifatda yuklashning foydasi yo'q —
+     * faqat fayl hajmini oshiradi. Birinchi versiyada siqilmagan WAV
+     * yuborilgan edi, va uzunroq videolarda Groq'ning yuklash hajmi
+     * chegarasidan (HTTP 413 "Request Entity Too Large") oshib ketardi.
+     * Mono+16kHz+AAC hajmni tахминан 10-15 barobar kamaytiradi.
      *
-     * Xato yuz bersa, HAQIQIY sababni ko'rsatuvchi Exception tashlaydi
-     * (avvalgidek jimgina "false" qaytarish o'rniga) — shunda foydalanuvchi
-     * ekranida aniq nima noto'g'ri ketganini ko'rish mumkin.
+     * Xato yuz bersa, HAQIQIY sababni ko'rsatuvchi Exception tashlaydi.
      */
-    fun decodeAudioTrackToWav(videoPath: String, outputFile: File) {
+    fun prepareAudioForTranscription(videoPath: String, outputFile: File) {
         val extractor = MediaExtractor()
         try {
             extractor.setDataSource(videoPath)
@@ -151,49 +145,74 @@ object AudioTools {
             extractor.release()
         }
 
-        if (pcmOutput.size() == 0) {
+        val rawPcm = pcmOutput.toByteArray()
+        if (rawPcm.isEmpty()) {
             throw Exception("Dekodlangan audio bo'sh chiqdi")
         }
 
-        writeWavFile(outputFile, pcmOutput.toByteArray(), sampleRate, channelCount)
+        val targetSampleRate = 16000
+        val monoResampled = downmixAndResample(rawPcm, sampleRate, channelCount, targetSampleRate)
+
+        // Nutq uchun past bitreyt (48kbps) yetarli va fayl hajmini yanada kamaytiradi.
+        encodePcmToAac(monoResampled, targetSampleRate, outputFile, bitRate = 48_000)
     }
 
-    private fun writeWavFile(outputFile: File, pcmData: ByteArray, sampleRate: Int, channelCount: Int) {
-        val byteRate = sampleRate * channelCount * 2
-        val blockAlign = channelCount * 2
-        val dataSize = pcmData.size
-        val chunkSize = 36 + dataSize
+    /**
+     * Ko'p kanalli (masalan stereo) PCM'ni mono'ga aylantiradi (kanallar
+     * o'rtachasi) va chiziqli interpolyatsiya bilan boshqa sample-reytga
+     * qayta namunalaydi (resample). Nutq (STT) uchun bu sifat darajasi
+     * to'liq yetarli.
+     */
+    private fun downmixAndResample(
+        pcm: ByteArray,
+        srcSampleRate: Int,
+        srcChannels: Int,
+        dstSampleRate: Int
+    ): ByteArray {
+        val channels = srcChannels.coerceAtLeast(1)
+        val bytesPerSample = 2
+        val frameSize = bytesPerSample * channels
+        val frameCount = pcm.size / frameSize
+        if (frameCount == 0) return ByteArray(0)
 
-        val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
-        header.put("RIFF".toByteArray(Charsets.US_ASCII))
-        header.putInt(chunkSize)
-        header.put("WAVE".toByteArray(Charsets.US_ASCII))
-        header.put("fmt ".toByteArray(Charsets.US_ASCII))
-        header.putInt(16)
-        header.putShort(1) // PCM
-        header.putShort(channelCount.toShort())
-        header.putInt(sampleRate)
-        header.putInt(byteRate)
-        header.putShort(blockAlign.toShort())
-        header.putShort(16) // bit depth
-        header.put("data".toByteArray(Charsets.US_ASCII))
-        header.putInt(dataSize)
-
-        FileOutputStream(outputFile).use { out ->
-            out.write(header.array())
-            out.write(pcmData)
+        val src = ByteBuffer.wrap(pcm).order(ByteOrder.LITTLE_ENDIAN)
+        val mono = ShortArray(frameCount)
+        for (i in 0 until frameCount) {
+            var sum = 0
+            for (c in 0 until channels) {
+                sum += src.getShort(i * frameSize + c * bytesPerSample).toInt()
+            }
+            mono[i] = (sum / channels).toShort()
         }
+
+        val resampled: ShortArray = if (srcSampleRate == dstSampleRate) {
+            mono
+        } else {
+            val ratio = srcSampleRate.toDouble() / dstSampleRate.toDouble()
+            val dstLength = (mono.size / ratio).toInt().coerceAtLeast(1)
+            ShortArray(dstLength) { i ->
+                val srcPos = i * ratio
+                val idx0 = srcPos.toInt().coerceIn(0, mono.size - 1)
+                val idx1 = (idx0 + 1).coerceAtMost(mono.size - 1)
+                val frac = srcPos - idx0
+                (mono[idx0] * (1 - frac) + mono[idx1] * frac).toInt().toShort()
+            }
+        }
+
+        val out = ByteBuffer.allocate(resampled.size * 2).order(ByteOrder.LITTLE_ENDIAN)
+        for (s in resampled) out.putShort(s)
+        return out.array()
     }
 
     /**
      * Berilgan RAW PCM (16-bit, mono, sampleRate) baytlarni AAC formatiga
      * kodlab, bitta audio trekli m4a faylga yozadi.
      */
-    fun encodePcmToAac(pcm: ByteArray, sampleRate: Int, outputFile: File) {
+    fun encodePcmToAac(pcm: ByteArray, sampleRate: Int, outputFile: File, bitRate: Int = 96_000) {
         val mime = MediaFormat.MIMETYPE_AUDIO_AAC
         val format = MediaFormat.createAudioFormat(mime, sampleRate, 1).apply {
             setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
-            setInteger(MediaFormat.KEY_BIT_RATE, 96000)
+            setInteger(MediaFormat.KEY_BIT_RATE, bitRate)
         }
 
         val codec = MediaCodec.createEncoderByType(mime)
