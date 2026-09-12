@@ -1,7 +1,6 @@
 package uz.dublyaj.app.data.pipeline
 
 import android.content.Context
-import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uz.dublyaj.app.data.audio.AudioTools
@@ -44,11 +43,12 @@ class DubbingPipeline(
         File(context.cacheDir, "dublyaj_work").apply { mkdirs() }
     }
 
-    suspend fun run(videoUri: Uri, onStep: (PipelineStep) -> Unit): File = withContext(Dispatchers.IO) {
+    suspend fun run(videoFile: File, onStep: (PipelineStep) -> Unit): File = withContext(Dispatchers.IO) {
+        val videoPath = videoFile.absolutePath
         onStep(PipelineStep.VIDEO_LOADED)
 
         val extractedAudio = File(workDir, "extracted_audio.wav")
-        AudioTools.decodeAudioTrackToWav(context, videoUri, extractedAudio)
+        AudioTools.decodeAudioTrackToWav(videoPath, extractedAudio)
         onStep(PipelineStep.AUDIO_EXTRACTED)
 
         val transcript = groq.transcribe(extractedAudio)
@@ -63,7 +63,7 @@ class DubbingPipeline(
         onStep(PipelineStep.SUBTITLES_READY)
 
         val sampleRate = AzureTtsClient.SAMPLE_RATE
-        val durationMs = AudioTools.getVideoDurationMs(context, videoUri)
+        val durationMs = AudioTools.getVideoDurationMs(videoPath)
         val totalSamples = ((durationMs / 1000.0) * sampleRate).toInt().coerceAtLeast(sampleRate)
         val timeline = ShortArray(totalSamples) // 0 = sukunat
 
@@ -109,7 +109,7 @@ class DubbingPipeline(
 
         val outDir = context.getExternalFilesDir(null) ?: context.filesDir
         val outputFile = File(outDir, "dublyaj_${System.currentTimeMillis()}.mp4")
-        val muxOk = AudioTools.muxVideoWithNewAudio(context, videoUri, dubbedAacFile, outputFile)
+        val muxOk = AudioTools.muxVideoWithNewAudio(videoPath, dubbedAacFile, outputFile)
         if (!muxOk) throw Exception("Yakuniy videoni yig'ib bo'lmadi")
         onStep(PipelineStep.MUXED)
 

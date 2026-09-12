@@ -1,8 +1,6 @@
 package uz.dublyaj.app.ui.screens
 
 import android.content.Intent
-import android.net.Uri
-import android.provider.OpenableColumns
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -26,27 +24,15 @@ import java.io.File
 private val allSteps = PipelineStep.entries
 
 @Composable
-fun DublyajScreen(videoUri: Uri, onBack: () -> Unit) {
+fun DublyajScreen(videoFile: File, onBack: () -> Unit) {
     val context = LocalContext.current
     val settingsStore = remember { SettingsStore(context) }
     val scope = rememberCoroutineScope()
 
-    var fileName by remember { mutableStateOf("Video") }
     var currentStepIndex by remember { mutableStateOf(-1) }
     var running by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var resultFile by remember { mutableStateOf<File?>(null) }
-
-    LaunchedEffect(videoUri) {
-        runCatching {
-            context.contentResolver.query(videoUri, null, null, null, null)?.use { cursor ->
-                val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (idx >= 0 && cursor.moveToFirst()) {
-                    fileName = cursor.getString(idx) ?: "Video"
-                }
-            }
-        }
-    }
 
     fun startDubbing() {
         errorMessage = null
@@ -66,7 +52,7 @@ fun DublyajScreen(videoUri: Uri, onBack: () -> Unit) {
                 }
 
                 val pipeline = DubbingPipeline(context, groqKey, azureKey, azureRegion)
-                val output = pipeline.run(videoUri) { step ->
+                val output = pipeline.run(videoFile) { step ->
                     currentStepIndex = step.index
                 }
                 resultFile = output
@@ -87,7 +73,7 @@ fun DublyajScreen(videoUri: Uri, onBack: () -> Unit) {
             IconButton(onClick = onBack) {
                 Icon(Icons.Filled.ArrowBack, contentDescription = "Orqaga")
             }
-            Text(fileName, style = MaterialTheme.typography.titleMedium)
+            Text(videoFile.name, style = MaterialTheme.typography.titleMedium)
         }
 
         Spacer(modifier = Modifier.height(8.dp))

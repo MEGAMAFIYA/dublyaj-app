@@ -1,6 +1,5 @@
 package uz.dublyaj.app
 
-import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -10,7 +9,6 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -30,6 +28,7 @@ import uz.dublyaj.app.ui.screens.KinoScreen
 import uz.dublyaj.app.ui.screens.ModellarScreen
 import uz.dublyaj.app.ui.screens.SozlamalarScreen
 import uz.dublyaj.app.ui.theme.DublyajTheme
+import java.io.File
 import java.net.URLDecoder
 import java.net.URLEncoder
 
@@ -87,15 +86,15 @@ fun AppRoot() {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable("kino") {
-                KinoScreen(onVideoSelected = { uri ->
-                    val encoded = URLEncoder.encode(uri.toString(), "UTF-8")
+                KinoScreen(onVideoSelected = { file ->
+                    val encoded = URLEncoder.encode(file.absolutePath, "UTF-8")
                     navController.navigate("dublyaj/$encoded")
                 })
             }
-            composable("dublyaj/{videoUri}") { backStackEntry ->
-                val encoded = backStackEntry.arguments?.getString("videoUri") ?: ""
-                val uri = Uri.parse(URLDecoder.decode(encoded, "UTF-8"))
-                DublyajScreen(videoUri = uri, onBack = { navController.popBackStack() })
+            composable("dublyaj/{videoPath}") { backStackEntry ->
+                val encoded = backStackEntry.arguments?.getString("videoPath") ?: ""
+                val path = URLDecoder.decode(encoded, "UTF-8")
+                DublyajScreen(videoFile = File(path), onBack = { navController.popBackStack() })
             }
             composable("modellar") {
                 ModellarScreen()

@@ -1,13 +1,11 @@
 package uz.dublyaj.app.data.audio
 
-import android.content.Context
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.media.MediaMuxer
-import android.net.Uri
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -18,18 +16,19 @@ import java.nio.ByteOrder
  * FFmpegsiz, faqat Android SDK'ning o'z android.media API'lari (MediaExtractor,
  * MediaCodec, MediaMuxer) orqali ishlaydigan audio/video vositalari.
  *
- * Nega FFmpeg emas: Android uchun bepul, hozirgi holatda ishonchli va
- * litsenziyasiz FFmpeg kutubxonasi topish murakkablashgan (asl FFmpegKit
- * arxivlangan). Shu sabab MVP uchun butunlay tizim API'lariga tayanamiz —
- * bu yechim video oqimini o'zgarishsiz nusxalaydi (sifat yo'qolmaydi) va
- * faqat audio trekni almashtiradi.
+ * Diqqat: bu funksiyalar endi content:// Uri emas, oddiy FAYL YO'LI (String)
+ * bilan ishlaydi. Sabab: SAF (content://) ruxsatlari ba'zi qurilmalarda
+ * (ayniqsa MIUI/Xiaomi) "Permission Denial" xatosiga olib kelgan edi.
+ * Video endi tanlangan zahoti ilovaning o'z ichki papkasiga nusxalanadi
+ * (bu haqda KinoScreen.kt'ga qarang), shu sabab bu yerda hech qanday
+ * tashqi ruxsat kerak emas — oddiy MediaExtractor.setDataSource(path) yetadi.
  */
 object AudioTools {
 
-    fun getVideoDurationMs(context: Context, uri: Uri): Long {
+    fun getVideoDurationMs(videoPath: String): Long {
         val retriever = MediaMetadataRetriever()
         return try {
-            retriever.setDataSource(context, uri)
+            retriever.setDataSource(videoPath)
             retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull() ?: 0L
         } finally {
@@ -56,12 +55,10 @@ object AudioTools {
      * (avvalgidek jimgina "false" qaytarish o'rniga) — shunda foydalanuvchi
      * ekranida aniq nima noto'g'ri ketganini ko'rish mumkin.
      */
-    fun decodeAudioTrackToWav(context: Context, videoUri: Uri, outputFile: File) {
+    fun decodeAudioTrackToWav(videoPath: String, outputFile: File) {
         val extractor = MediaExtractor()
         try {
-            context.contentResolver.openFileDescriptor(videoUri, "r")?.use { pfd ->
-                extractor.setDataSource(pfd.fileDescriptor)
-            } ?: throw Exception("Video faylni ochib bo'lmadi (ruxsat yo'q yoki fayl topilmadi)")
+            extractor.setDataSource(videoPath)
         } catch (e: Exception) {
             extractor.release()
             throw Exception("Video faylni o'qishda xato: ${e.message}", e)
@@ -274,8 +271,7 @@ object AudioTools {
      * audio trekini (m4a) birlashtirib, yakuniy mp4 fayl yaratadi.
      */
     fun muxVideoWithNewAudio(
-        context: Context,
-        originalVideoUri: Uri,
+        originalVideoPath: String,
         dubbedAudioFile: File,
         outputFile: File
     ): Boolean {
@@ -284,9 +280,7 @@ object AudioTools {
         var muxer: MediaMuxer? = null
 
         return try {
-            context.contentResolver.openFileDescriptor(originalVideoUri, "r")?.use { pfd ->
-                videoExtractor.setDataSource(pfd.fileDescriptor)
-            } ?: return false
+            videoExtractor.setDataSource(originalVideoPath)
             audioExtractor.setDataSource(dubbedAudioFile.absolutePath)
 
             var videoTrackIndex = -1
