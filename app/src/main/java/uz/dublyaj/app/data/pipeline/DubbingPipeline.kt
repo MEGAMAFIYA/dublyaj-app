@@ -47,9 +47,8 @@ class DubbingPipeline(
     suspend fun run(videoUri: Uri, onStep: (PipelineStep) -> Unit): File = withContext(Dispatchers.IO) {
         onStep(PipelineStep.VIDEO_LOADED)
 
-        val extractedAudio = File(workDir, "extracted_audio.m4a")
-        val extractOk = AudioTools.extractAudioTrack(context, videoUri, extractedAudio)
-        if (!extractOk) throw Exception("Videodan audio ajratib bo'lmadi (audio trek topilmadi bo'lishi mumkin)")
+        val extractedAudio = File(workDir, "extracted_audio.wav")
+        AudioTools.decodeAudioTrackToWav(context, videoUri, extractedAudio)
         onStep(PipelineStep.AUDIO_EXTRACTED)
 
         val transcript = groq.transcribe(extractedAudio)

@@ -8,8 +8,11 @@ import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.media.MediaMuxer
 import android.net.Uri
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileOutputStream
 import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 /**
  * FFmpegsiz, faqat Android SDK'ning o'z android.media API'lari (MediaExtractor,
@@ -34,55 +37,154 @@ object AudioTools {
         }
     }
 
-    /** Videodan audio trekni qayta kodlashsiz (remux) alohida m4a faylga ko'chiradi. */
-    fun extractAudioTrack(context: Context, videoUri: Uri, outputFile: File): Boolean {
+    /**
+     * Videodagi audio trekni (kodekidan qat'iy nazar — AAC, MP3, Opus va h.k.)
+     * DEKODLAB, WAV faylga yozadi.
+     *
+     * Nega remux emas, dekodlash: birinchi versiyada audio trekni
+     * MediaMuxer orqali to'g'ridan-to'g'ri MP4 konteyneriga ko'chirishga
+     * harakat qilingandi — lekin ba'zi videolarning audio kodeki (masalan
+     * MP3 yoki Opus) MediaMuxer'ning MP4-chiqish rejimida to'g'ridan-to'g'ri
+     * qo'llab-quvvatlanmasligi mumkin, va bu xatoni umumiy "audio trek
+     * topilmadi" degan xabar bilan yashirib qo'yardi. Dekodlab-WAV-yozish
+     * kodekdan qat'iy nazar ishlaydi, chunki MediaCodec dekoderi deyarli
+     * barcha keng tarqalgan audio kodeklarni qo'llab-quvvatlaydi, WAV esa
+     * hech qanday kodlashni talab qilmaydi (xom PCM + sarlavha, xolos).
+     * Groq/Whisper WAV formatini to'g'ridan-to'g'ri qabul qiladi.
+     *
+     * Xato yuz bersa, HAQIQIY sababni ko'rsatuvchi Exception tashlaydi
+     * (avvalgidek jimgina "false" qaytarish o'rniga) — shunda foydalanuvchi
+     * ekranida aniq nima noto'g'ri ketganini ko'rish mumkin.
+     */
+    fun decodeAudioTrackToWav(context: Context, videoUri: Uri, outputFile: File) {
         val extractor = MediaExtractor()
-        var muxer: MediaMuxer? = null
-        return try {
+        try {
             context.contentResolver.openFileDescriptor(videoUri, "r")?.use { pfd ->
                 extractor.setDataSource(pfd.fileDescriptor)
-            } ?: return false
+            } ?: throw Exception("Video faylni ochib bo'lmadi (ruxsat yo'q yoki fayl topilmadi)")
+        } catch (e: Exception) {
+            extractor.release()
+            throw Exception("Video faylni o'qishda xato: ${e.message}", e)
+        }
 
-            var audioTrackIndex = -1
-            var audioFormat: MediaFormat? = null
-            for (i in 0 until extractor.trackCount) {
-                val format = extractor.getTrackFormat(i)
-                val mime = format.getString(MediaFormat.KEY_MIME) ?: continue
-                if (mime.startsWith("audio/")) {
-                    audioTrackIndex = i
-                    audioFormat = format
-                    break
+        var trackIndex = -1
+        var format: MediaFormat? = null
+        for (i in 0 until extractor.trackCount) {
+            val f = extractor.getTrackFormat(i)
+            val mime = f.getString(MediaFormat.KEY_MIME) ?: continue
+            if (mime.startsWith("audio/")) {
+                trackIndex = i
+                format = f
+                break
+            }
+        }
+        if (trackIndex == -1 || format == null) {
+            extractor.release()
+            throw Exception("Bu videoda audio trek yo'q")
+        }
+        extractor.selectTrack(trackIndex)
+
+        val mime = format.getString(MediaFormat.KEY_MIME)!!
+        var sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+        var channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+
+        val decoder = try {
+            MediaCodec.createDecoderByType(mime).apply {
+                configure(format, null, null, 0)
+                start()
+            }
+        } catch (e: Exception) {
+            extractor.release()
+            throw Exception("Audio dekoderini ishga tushirib bo'lmadi ($mime): ${e.message}", e)
+        }
+
+        val pcmOutput = ByteArrayOutputStream()
+        val bufferInfo = MediaCodec.BufferInfo()
+        var inputDone = false
+        var outputDone = false
+        val timeoutUs = 10_000L
+
+        try {
+            while (!outputDone) {
+                if (!inputDone) {
+                    val inIndex = decoder.dequeueInputBuffer(timeoutUs)
+                    if (inIndex >= 0) {
+                        val inputBuffer = decoder.getInputBuffer(inIndex)!!
+                        inputBuffer.clear()
+                        val sampleSize = extractor.readSampleData(inputBuffer, 0)
+                        if (sampleSize < 0) {
+                            decoder.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            inputDone = true
+                        } else {
+                            val presentationTimeUs = extractor.sampleTime
+                            decoder.queueInputBuffer(inIndex, 0, sampleSize, presentationTimeUs, 0)
+                            extractor.advance()
+                        }
+                    }
+                }
+
+                val outIndex = decoder.dequeueOutputBuffer(bufferInfo, timeoutUs)
+                when {
+                    outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                        val newFormat = decoder.outputFormat
+                        sampleRate = newFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                        channelCount = newFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                    }
+                    outIndex >= 0 -> {
+                        val outputBuffer = decoder.getOutputBuffer(outIndex)
+                        if (outputBuffer != null && bufferInfo.size > 0) {
+                            val chunk = ByteArray(bufferInfo.size)
+                            outputBuffer.position(bufferInfo.offset)
+                            outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
+                            outputBuffer.get(chunk)
+                            pcmOutput.write(chunk)
+                        }
+                        decoder.releaseOutputBuffer(outIndex, false)
+                        if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                            outputDone = true
+                        }
+                    }
                 }
             }
-            if (audioTrackIndex == -1 || audioFormat == null) return false
-
-            extractor.selectTrack(audioTrackIndex)
-
-            muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-            val muxerTrackIndex = muxer.addTrack(audioFormat)
-            muxer.start()
-
-            val buffer = ByteBuffer.allocate(1 * 1024 * 1024)
-            val bufferInfo = MediaCodec.BufferInfo()
-
-            while (true) {
-                buffer.clear()
-                val sampleSize = extractor.readSampleData(buffer, 0)
-                if (sampleSize < 0) break
-                bufferInfo.offset = 0
-                bufferInfo.size = sampleSize
-                bufferInfo.presentationTimeUs = extractor.sampleTime
-                bufferInfo.flags = extractor.sampleFlags
-                muxer.writeSampleData(muxerTrackIndex, buffer, bufferInfo)
-                extractor.advance()
-            }
-            true
         } catch (e: Exception) {
-            false
+            throw Exception("Audio dekodlashda xato: ${e.message}", e)
         } finally {
+            runCatching { decoder.stop() }
+            decoder.release()
             extractor.release()
-            runCatching { muxer?.stop() }
-            runCatching { muxer?.release() }
+        }
+
+        if (pcmOutput.size() == 0) {
+            throw Exception("Dekodlangan audio bo'sh chiqdi")
+        }
+
+        writeWavFile(outputFile, pcmOutput.toByteArray(), sampleRate, channelCount)
+    }
+
+    private fun writeWavFile(outputFile: File, pcmData: ByteArray, sampleRate: Int, channelCount: Int) {
+        val byteRate = sampleRate * channelCount * 2
+        val blockAlign = channelCount * 2
+        val dataSize = pcmData.size
+        val chunkSize = 36 + dataSize
+
+        val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
+        header.put("RIFF".toByteArray(Charsets.US_ASCII))
+        header.putInt(chunkSize)
+        header.put("WAVE".toByteArray(Charsets.US_ASCII))
+        header.put("fmt ".toByteArray(Charsets.US_ASCII))
+        header.putInt(16)
+        header.putShort(1) // PCM
+        header.putShort(channelCount.toShort())
+        header.putInt(sampleRate)
+        header.putInt(byteRate)
+        header.putShort(blockAlign.toShort())
+        header.putShort(16) // bit depth
+        header.put("data".toByteArray(Charsets.US_ASCII))
+        header.putInt(dataSize)
+
+        FileOutputStream(outputFile).use { out ->
+            out.write(header.array())
+            out.write(pcmData)
         }
     }
 

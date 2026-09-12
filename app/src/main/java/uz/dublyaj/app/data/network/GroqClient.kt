@@ -33,7 +33,7 @@ class GroqClient(private val apiKey: String) {
             .setType(MultipartBody.FORM)
             .addFormDataPart(
                 "file", audioFile.name,
-                audioFile.asRequestBody("audio/mp4".toMediaTypeOrNull())
+                audioFile.asRequestBody("audio/wav".toMediaTypeOrNull())
             )
             .addFormDataPart("model", "whisper-large-v3")
             .addFormDataPart("response_format", "verbose_json")
