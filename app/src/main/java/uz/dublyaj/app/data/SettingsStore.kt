@@ -15,6 +15,7 @@ object SettingsKeys {
     val AZURE_API_KEY = stringPreferencesKey("azure_api_key")
     val AZURE_REGION = stringPreferencesKey("azure_region")
     val HUGGINGFACE_TOKEN = stringPreferencesKey("huggingface_token")
+    val GITHUB_REPO = stringPreferencesKey("github_repo")
 
     // "auto" | "online" | "offline"
     val PREFERRED_MODE = stringPreferencesKey("preferred_mode")

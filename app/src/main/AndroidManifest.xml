@@ -5,6 +5,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- Ilovani o'zini yangilash (GitHub Release'dan yuklab, o'rnatishni boshlash) uchun -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Android 13+ da video/galereyaga kirish uchun -->
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <!-- Android 12 va pastroq uchun orqaga moslik -->

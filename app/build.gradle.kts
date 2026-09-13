@@ -11,8 +11,8 @@ android {
         applicationId = "uz.dublyaj.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 9
-        versionName = "0.4.0-bg-tempo"
+        versionCode = 10
+        versionName = "0.5.0-autoupdate"
     }
 
     buildTypes {
@@ -33,6 +33,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {

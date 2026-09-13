@@ -46,6 +46,15 @@ Har bir git push'dan keyin GitHub Actions avtomatik .apk yasaydi va uni
 repozitoriyning **Releases** bo'limiga ("latest" nomi bilan) qo'yadi — shu yerdan
 telefon brauzeridan yuklab o'rnatiladi.
 
+## Ilovani o'zini yangilash
+Sozlamalar bo'limida GitHub repo nomini (masalan `foydalanuvchi/dublyaj-app`)
+kiritib saqlang, so'ng "Yangilanishni tekshirish" tugmasini bosing. Yangi
+versiya topilsa, "Yuklab olish va o'rnatish" orqali to'g'ridan-to'g'ri
+telefonda yangilanadi (tizim o'rnatish oynasi ochiladi — Android xavfsizlik
+tufayli buni to'liq jimgina/avtomatik qila olmaydi, lekin bitta tugma bosish
+bilan yangilaydi). Bu GitHub API emas, GitHub'ning doimiy "latest release"
+fayl havolalaridan foydalanadi, shuning uchun token yoki so'rov chegarasi yo'q.
+
 ## Ishlatishdan oldin
 Sozlamalar bo'limida:
 - **Groq API kaliti** — https://console.groq.com/keys (bepul)
