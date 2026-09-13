@@ -8,6 +8,7 @@ import uz.dublyaj.app.data.audio.PitchAnalyzer
 import uz.dublyaj.app.data.model.TranscriptSegment
 import uz.dublyaj.app.data.network.AzureTtsClient
 import uz.dublyaj.app.data.network.GroqClient
+import uz.dublyaj.app.data.subtitle.SrtExporter
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -21,6 +22,9 @@ enum class PipelineStep(val index: Int, val label: String) {
     DUB_AUDIO_READY(5, "6/7 Dublyaj ovozi yaratildi"),
     MUXED(6, "7/7 Video va audio birlashtirildi")
 }
+
+/** Pipeline natijasi: yakuniy video VA unga mos .srt subtitr fayli. */
+data class DubResult(val videoFile: File, val srtFile: File)
 
 /**
  * ONLAYN rejim uchun to'liq dublyaj quvuri (pipeline).
@@ -63,7 +67,7 @@ class DubbingPipeline(
     // bir xil mantiq — undan ortig'i tabiiy ovozni buzib yuboradi).
     private val maxSpeedFactor = 1.6
 
-    suspend fun run(videoFile: File, onStep: (PipelineStep) -> Unit): File = withContext(Dispatchers.IO) {
+    suspend fun run(videoFile: File, onStep: (PipelineStep) -> Unit): DubResult = withContext(Dispatchers.IO) {
         if (!videoFile.exists() || videoFile.length() < 100_000L) {
             throw Exception(
                 "Video fayl topilmadi yoki juda kichik (${if (videoFile.exists()) videoFile.length() else 0} bayt). " +
@@ -84,8 +88,10 @@ class DubbingPipeline(
         val translated = groq.translateToUzbek(transcript)
         onStep(PipelineStep.TRANSLATED)
 
-        // Hozircha alohida .srt fayli chiqarilmaydi — bu bosqich UI'dagi 7 qadamga
-        // moslash uchun belgi sifatida qoldirilgan, .srt eksport keyingi bosqichda qo'shiladi.
+        val outDir = context.getExternalFilesDir(null) ?: context.filesDir
+        val baseName = "dublyaj_${System.currentTimeMillis()}"
+        val srtFile = File(outDir, "$baseName.srt")
+        SrtExporter.export(translated, srtFile)
         onStep(PipelineStep.SUBTITLES_READY)
 
         val voiceForIndex = assignVoicesByPitch(translated, preparedAudio.pitchAudio)
@@ -155,13 +161,12 @@ class DubbingPipeline(
         val dubbedAacFile = File(workDir, "dubbed_audio.m4a")
         AudioTools.encodePcmToAac(pcmOut.array(), sampleRate, dubbedAacFile)
 
-        val outDir = context.getExternalFilesDir(null) ?: context.filesDir
-        val outputFile = File(outDir, "dublyaj_${System.currentTimeMillis()}.mp4")
+        val outputFile = File(outDir, "$baseName.mp4")
         val muxOk = AudioTools.muxVideoWithNewAudio(videoPath, dubbedAacFile, outputFile)
         if (!muxOk) throw Exception("Yakuniy videoni yig'ib bo'lmadi")
         onStep(PipelineStep.MUXED)
 
-        outputFile
+        DubResult(videoFile = outputFile, srtFile = srtFile)
     }
 
     /**

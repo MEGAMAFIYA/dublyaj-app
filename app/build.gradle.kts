@@ -11,8 +11,8 @@ android {
         applicationId = "uz.dublyaj.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 10
-        versionName = "0.5.0-autoupdate"
+        versionCode = 11
+        versionName = "0.6.0-srt"
     }
 
     buildTypes {

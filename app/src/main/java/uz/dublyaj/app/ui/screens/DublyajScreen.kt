@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import uz.dublyaj.app.data.SettingsKeys
 import uz.dublyaj.app.data.SettingsStore
+import uz.dublyaj.app.data.pipeline.DubResult
 import uz.dublyaj.app.data.pipeline.DubbingPipeline
 import uz.dublyaj.app.data.pipeline.PipelineStep
 import java.io.File
@@ -32,11 +33,21 @@ fun DublyajScreen(videoFile: File, onBack: () -> Unit) {
     var currentStepIndex by remember { mutableStateOf(-1) }
     var running by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var resultFile by remember { mutableStateOf<File?>(null) }
+    var result by remember { mutableStateOf<DubResult?>(null) }
+
+    fun shareFile(file: File, mimeType: String, chooserTitle: String) {
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, chooserTitle))
+    }
 
     fun startDubbing() {
         errorMessage = null
-        resultFile = null
+        result = null
         currentStepIndex = -1
         running = true
         scope.launch {
@@ -55,7 +66,7 @@ fun DublyajScreen(videoFile: File, onBack: () -> Unit) {
                 val output = pipeline.run(videoFile) { step ->
                     currentStepIndex = step.index
                 }
-                resultFile = output
+                result = output
             } catch (e: Exception) {
                 errorMessage = e.message ?: "Noma'lum xato yuz berdi"
             } finally {
@@ -116,27 +127,26 @@ fun DublyajScreen(videoFile: File, onBack: () -> Unit) {
             Text("Xato: $it", color = MaterialTheme.colorScheme.error)
         }
 
-        resultFile?.let { file ->
+        result?.let { r ->
             Spacer(modifier = Modifier.height(16.dp))
             Text("Tayyor! ✓", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
             Button(
-                onClick = {
-                    val uri = FileProvider.getUriForFile(
-                        context, "${context.packageName}.fileprovider", file
-                    )
-                    val intent = Intent(Intent.ACTION_SEND).apply {
-                        type = "video/mp4"
-                        putExtra(Intent.EXTRA_STREAM, uri)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    context.startActivity(Intent.createChooser(intent, "Videoni ulashish"))
-                },
+                onClick = { shareFile(r.videoFile, "video/mp4", "Videoni ulashish") },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(Icons.Filled.Share, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Videoni ulashish / saqlash")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { shareFile(r.srtFile, "text/plain", "Subtitrni ulashish") },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Filled.Share, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Subtitr (.srt) ulashish / saqlash")
             }
         }
 

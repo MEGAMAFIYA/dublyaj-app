@@ -12,10 +12,10 @@
   3. Nutq matnga aylantirildi — Groq Whisper (`whisper-large-v3`)
   4. Tarjima qilindi — Groq LLM (`openai/gpt-oss-120b`), Python backenddagi bilan bir xil,
      ishonchli raqamlash-parser bilan
-  5. Subtitr tayyor (hozircha faqat belgi — `.srt` eksport keyingi bosqichda)
+  5. Subtitr tayyor — haqiqiy `.srt` fayl yaratiladi (standart SubRip formatida)
   6. Dublyaj ovozi — Azure Speech (`uz-UZ-SardorNeural` / `uz-UZ-MadinaNeural`), RAW PCM
   7. Video va audio birlashtirildi — asl video oqimi o'zgarishsiz, faqat audio trek almashtiriladi
-- Natija video **ulashish/saqlash** tugmasi bilan chiqadi (FileProvider orqali)
+- Natija video **va** `.srt` subtitr fayli alohida **ulashish/saqlash** tugmalari bilan chiqadi (FileProvider orqali)
 
 ## Bilib qo'yish kerak bo'lgan cheklovlar (halol ro'yxat)
 1. **Spiker aniqlanmaydi (haqiqiy ma'noda)** — real diarizatsiya (pyannote) hali
@@ -35,11 +35,8 @@
 5. Oflayn rejim hali ishlamaydi (Modellar ekranidagi tarjima/TTS modellari "Tez orada").
 
 ## Keyingi bosqichlar
-- Diarizatsiya (spiker aniqlash) — telefonda yoki bulutda
-- Asl audio bilan aralashtirish (background mixing)
-- Tempo-fit (segment vaqtiga moslash)
+- Diarizatsiya (haqiqiy spiker aniqlash) — telefonda yoki bulutda
 - Oflayn rejim: whisper.cpp + oflayn tarjima + oflayn/tizim TTS
-- .srt subtitr eksport
 
 ## APK qanday olinadi
 Har bir git push'dan keyin GitHub Actions avtomatik .apk yasaydi va uni
