@@ -18,13 +18,17 @@
 - Natija video **ulashish/saqlash** tugmasi bilan chiqadi (FileProvider orqali)
 
 ## Bilib qo'yish kerak bo'lgan cheklovlar (halol ro'yxat)
-1. **Spiker aniqlanmaydi** — diarizatsiya (pyannote) hali telefonda yo'q. Ovozlar
-   segment tartibi bo'yicha (juft/toq) erkak/ayolga almashtiriladi, real spikerga bog'lanmaydi.
-2. **Fon tovushi/musiqa saqlanmaydi** — faqat dublyaj nutqi eshitiladi, boshqa joyda sukunat.
-   Asl audio bilan aralashtirish (past ovozda pastki qatlam) keyingi bosqichda qo'shiladi.
-3. **Vaqtga moslashtirish (tempo-fit) yo'q** — agar tarjima matni asl gapdan uzun bo'lsa,
-   ovoz keyingi repika boshlanishidan oldin oddiy kesiladi (tezlashtirilmaydi). Bu ba'zan
-   gap "kesilgan" tuyulishi mumkin — Python backenddagi `atempo` mantiqi keyingi bosqichda qo'shiladi.
+1. **Spiker aniqlanmaydi (haqiqiy ma'noda)** — real diarizatsiya (pyannote) hali
+   telefonda yo'q. Buning o'rniga PITCH (ovoz balandligi) asosidagi yengil usul
+   ishlatiladi: har bir segmentning o'rtacha F0'si hisoblanadi va past/baland
+   pitch bo'yicha ikki guruhga (erkak/ayol ehtimoli) ajratiladi. Bu 2-3 xil
+   bir jinsdagi odamni farqlamaydi, lekin erkak/ayol almashinuvini yaxshi ushlaydi.
+2. **Fon tovushi endi past balandlikda saqlanadi** (~22%) — musiqa/shovqin butunlay
+   o'chirilmaydi, dublyaj nutqi ustida eshitiladi.
+3. **Vaqtga qisman moslashtirish (tempo-fit)** — tarjima matni asl gapdan uzun bo'lsa,
+   ovoz avval tezlashtirib "sig'dirishga" harakat qilinadi (soddalashtirilgan usul —
+   pitch biroz o'zgaradi, professional WSOLA emas), faqat shundan keyin ham
+   sig'masa qolgan qismi kesiladi.
 4. **Uzun videolar uchun xotira** — butun audio "vaqt chizig'i" RAMda saqlanadi
    (24kHz x davomiylik). ~10-15 daqiqagacha bo'lgan videolar uchun muammosiz,
    undan uzunroq (to'liq kinolar) uchun kelajakda bosqichlab ishlov berish kerak bo'ladi.

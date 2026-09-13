@@ -35,21 +35,39 @@ object AudioTools {
         }
     }
 
+    /** Dekodlangan mono PCM + uning sample-reyti (pitch tahlili uchun ham qayta ishlatiladi). */
+    data class DecodedMonoAudio(val pcm: ShortArray, val sampleRate: Int)
+
+    /**
+     * Bir marta dekodlashdan olingan barcha audio hosilalari:
+     * - transcriptionFile: Groq/Whisper'ga yuklash uchun siqilgan (mono, 16kHz) AAC fayl
+     * - pitchAudio: xuddi shu 16kHz mono PCM — PitchAnalyzer uchun qayta ishlatiladi
+     * - backgroundPcm: asl audio, mono, Azure TTS bilan BIR XIL sample-reytda (24kHz) —
+     *   fon ovozi/musiqani dublyaj ustiga past balandlikda aralashtirish uchun
+     */
+    data class PreparedAudio(
+        val transcriptionFile: File,
+        val pitchAudio: DecodedMonoAudio,
+        val backgroundPcm: ShortArray,
+        val backgroundSampleRate: Int
+    )
+
     /**
      * Videodagi audio trekni (kodekidan qat'iy nazar — AAC, MP3, Opus va h.k.)
-     * dekodlab, MONO + 16kHz'ga tushirib, siqilgan AAC (.m4a) faylga yozadi.
-     * Bu fayl Groq/Whisper'ga yuklash uchun ishlatiladi.
+     * BIR MARTA dekodlaydi, so'ng ikkita maqsad uchun ikki xil sample-reytga
+     * qayta namunalaydi: (1) Whisper'ga yuklash uchun siqilgan 16kHz mono AAC,
+     * (2) fon ovozi sifatida keyinroq dublyaj bilan aralashtirish uchun 24kHz
+     * mono xom PCM (Azure TTS chiqishi bilan bir xil reytda — aralashtirishda
+     * qayta namunalash shart bo'lmasin deb).
      *
-     * Nega mono+16kHz+siqilgan: Whisper ichki jarayonda baribir 16kHz'ga
-     * tushiradi, shuning uchun undan yuqori sifatda yuklashning foydasi yo'q —
-     * faqat fayl hajmini oshiradi. Birinchi versiyada siqilmagan WAV
-     * yuborilgan edi, va uzunroq videolarda Groq'ning yuklash hajmi
-     * chegarasidan (HTTP 413 "Request Entity Too Large") oshib ketardi.
-     * Mono+16kHz+AAC hajmni tахминан 10-15 barobar kamaytiradi.
+     * Nega mono+16kHz+siqilgan (transkripsiya uchun): Whisper ichki jarayonda
+     * baribir 16kHz'ga tushiradi, shuning uchun undan yuqori sifatda yuklashning
+     * foydasi yo'q — faqat fayl hajmini oshiradi (va Groq'ning yuklash hajmi
+     * chegarasidan, HTTP 413, oshib ketishga sabab bo'lardi).
      *
      * Xato yuz bersa, HAQIQIY sababni ko'rsatuvchi Exception tashlaydi.
      */
-    fun prepareAudioForTranscription(videoPath: String, outputFile: File) {
+    fun prepareAudio(videoPath: String, transcriptionOutputFile: File): PreparedAudio {
         val extractor = MediaExtractor()
         try {
             extractor.setDataSource(videoPath)
@@ -150,11 +168,56 @@ object AudioTools {
             throw Exception("Dekodlangan audio bo'sh chiqdi")
         }
 
-        val targetSampleRate = 16000
-        val monoResampled = downmixAndResample(rawPcm, sampleRate, channelCount, targetSampleRate)
-
+        val pitchSampleRate = 16000
+        val pitchShorts = downmixAndResample(rawPcm, sampleRate, channelCount, pitchSampleRate)
+        val pitchBytes = shortsToLittleEndianBytes(pitchShorts)
         // Nutq uchun past bitreyt (48kbps) yetarli va fayl hajmini yanada kamaytiradi.
-        encodePcmToAac(monoResampled, targetSampleRate, outputFile, bitRate = 48_000)
+        encodePcmToAac(pitchBytes, pitchSampleRate, transcriptionOutputFile, bitRate = 48_000)
+
+        val backgroundSampleRate = AzureTtsSampleRate
+        val backgroundShorts = downmixAndResample(rawPcm, sampleRate, channelCount, backgroundSampleRate)
+
+        return PreparedAudio(
+            transcriptionFile = transcriptionOutputFile,
+            pitchAudio = DecodedMonoAudio(pitchShorts, pitchSampleRate),
+            backgroundPcm = backgroundShorts,
+            backgroundSampleRate = backgroundSampleRate
+        )
+    }
+
+    // Azure TTS RAW PCM chiqishi bilan bir xil (24kHz) — shu bilan fon ovozini
+    // qo'shimcha qayta namunalashsiz to'g'ridan-to'g'ri aralashtirish mumkin.
+    // (data/network/AzureTtsClient.SAMPLE_RATE bilan bir xil qiymat — bu yerga
+    // to'g'ridan-to'g'ri bog'lanish "audio" modulini "network" moduliga bog'lab
+    // qo'ymaslik uchun konstanta sifatida takrorlangan.)
+    private const val AzureTtsSampleRate = 24000
+
+    /**
+     * Ovoz balandligini (tempo) o'zgartiradi — chiziqli interpolyatsiya bilan
+     * qayta namunalash orqali. Diqqat: bu usul balandlikni (pitch) ham biroz
+     * o'zgartiradi (tezlashtirilsa ovoz balandroq eshitiladi) — professional
+     * studiyalarda ishlatiladigan pitch-saqlovchi usul (WSOLA/faza-vokoder)
+     * emas, lekin sodda va so'zni "kesib tashlash"dan ko'ra ancha tabiiyroq.
+     */
+    fun changeSpeed(pcm: ShortArray, factor: Double): ShortArray {
+        if (pcm.isEmpty() || kotlin.math.abs(factor - 1.0) < 0.01) return pcm
+        val safeFactor = factor.coerceIn(0.5, 2.0)
+        val dstLength = (pcm.size / safeFactor).toInt().coerceAtLeast(1)
+        return ShortArray(dstLength) { i ->
+            val srcPos = i * safeFactor
+            val idx0 = srcPos.toInt().coerceIn(0, pcm.size - 1)
+            val idx1 = (idx0 + 1).coerceAtMost(pcm.size - 1)
+            val frac = srcPos - idx0
+            (pcm[idx0] * (1 - frac) + pcm[idx1] * frac).toInt().toShort()
+        }
+    }
+
+    /** RAW PCM (16-bit, little-endian) baytlarni ShortArray'ga aylantiradi. */
+    fun bytesToShortsLE(bytes: ByteArray): ShortArray {
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val shorts = ShortArray(bytes.size / 2)
+        for (i in shorts.indices) shorts[i] = buffer.getShort(i * 2)
+        return shorts
     }
 
     /**
@@ -168,12 +231,12 @@ object AudioTools {
         srcSampleRate: Int,
         srcChannels: Int,
         dstSampleRate: Int
-    ): ByteArray {
+    ): ShortArray {
         val channels = srcChannels.coerceAtLeast(1)
         val bytesPerSample = 2
         val frameSize = bytesPerSample * channels
         val frameCount = pcm.size / frameSize
-        if (frameCount == 0) return ByteArray(0)
+        if (frameCount == 0) return ShortArray(0)
 
         val src = ByteBuffer.wrap(pcm).order(ByteOrder.LITTLE_ENDIAN)
         val mono = ShortArray(frameCount)
@@ -185,7 +248,7 @@ object AudioTools {
             mono[i] = (sum / channels).toShort()
         }
 
-        val resampled: ShortArray = if (srcSampleRate == dstSampleRate) {
+        return if (srcSampleRate == dstSampleRate) {
             mono
         } else {
             val ratio = srcSampleRate.toDouble() / dstSampleRate.toDouble()
@@ -198,9 +261,11 @@ object AudioTools {
                 (mono[idx0] * (1 - frac) + mono[idx1] * frac).toInt().toShort()
             }
         }
+    }
 
-        val out = ByteBuffer.allocate(resampled.size * 2).order(ByteOrder.LITTLE_ENDIAN)
-        for (s in resampled) out.putShort(s)
+    private fun shortsToLittleEndianBytes(shorts: ShortArray): ByteArray {
+        val out = ByteBuffer.allocate(shorts.size * 2).order(ByteOrder.LITTLE_ENDIAN)
+        for (s in shorts) out.putShort(s)
         return out.array()
     }
 

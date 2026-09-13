@@ -11,8 +11,8 @@ android {
         applicationId = "uz.dublyaj.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "0.2.5-compress"
+        versionCode = 9
+        versionName = "0.4.0-bg-tempo"
     }
 
     buildTypes {

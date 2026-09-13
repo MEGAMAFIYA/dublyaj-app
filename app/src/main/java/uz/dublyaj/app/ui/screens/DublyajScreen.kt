@@ -79,8 +79,7 @@ fun DublyajScreen(videoFile: File, onBack: () -> Unit) {
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             "Onlayn rejim: Groq (nutq tanish + tarjima) va Azure (ovoz) ishlatiladi. " +
-                "Hozircha ovoz spikerga emas, navbat bo'yicha (erkak/ayol) biriktiriladi — " +
-                "aniq spiker aniqlash keyingi bosqichda qo'shiladi.",
+                "Ovoz balandligi (pitch) asosida erkak/ayol ovozi avtomatik tanlanadi.",
             style = MaterialTheme.typography.bodySmall
         )
         Spacer(modifier = Modifier.height(24.dp))
